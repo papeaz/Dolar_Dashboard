@@ -1,0 +1,48 @@
+name: Actualizar data.json
+
+on:
+  schedule:
+    # Ejecutar a las 00:00, 08:00 y 16:00 UTC
+    - cron: '0 */8 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Instalar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Obtener precio paralelo y actualizar data.json
+        run: |
+          python - <<PY
+          import json, datetime
+          import requests
+
+          url = "https://bo.dolarapi.com/v1/dolares/binance"
+          data = requests.get(url).json()
+          precio = data["venta"]
+          fecha = data["fechaActualizacion"].split("T")[0]
+
+          with open("data.json","r+",encoding="utf-8") as f:
+              arr = json.load(f)
+              if not any(item["fecha"]==fecha for item in arr):
+                  arr.append({"fecha": fecha, "precio": precio})
+                  arr.sort(key=lambda x: x["fecha"])
+                  f.seek(0); json.dump(arr,f,indent=2,ensure_ascii=False); f.truncate()
+          PY
+
+      - name: Commit & Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git commit -m "Update data.json [ci skip]" || echo "No hay cambios"
+          git push
