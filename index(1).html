@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Dólar Paralelo Bolivia</title>
+  <!-- Carga Chart.js desde un CDN para dibujar el gráfico de líneas -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2rem;
+      background-color: #f7f7f7;
+    }
+    h1 {
+      text-align: center;
+    }
+    #precio {
+      margin: 1rem 0;
+      font-size: 1.2rem;
+      text-align: center;
+    }
+    #grafico {
+      max-width: 100%;
+      height: 400px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Precio del dólar paralelo en Bolivia</h1>
+  <div id="precio">Cargando precio...</div>
+  <!-- Canvas donde Chart.js renderizará el gráfico -->
+  <canvas id="grafico"></canvas>
+
+  <script>
+    /*
+     * Función para obtener el precio actual del dólar paralelo desde DolarApi.
+     * Devuelve el valor de venta y actualiza el texto en la página.
+     */
+    async function fetchPrecioActual() {
+      try {
+        const resp = await fetch('https://bo.dolarapi.com/v1/dolares/binance');
+        const datos = await resp.json();
+        const precioVenta = datos.venta;
+        const fechaActualizacion = new Date(datos.fechaActualizacion);
+        document.getElementById('precio').innerText =
+          'Precio actual: ' + precioVenta + ' BOB (actualizado: ' + fechaActualizacion.toLocaleString() + ')';
+        return precioVenta;
+      } catch (err) {
+        console.error(err);
+        document.getElementById('precio').innerText = 'Error al obtener el precio actual';
+        return null;
+      }
+    }
+
+    /*
+     * Carga los datos históricos desde el archivo data.json.
+     * data.json debe estar en el mismo directorio que index.html y contener
+     * una lista de objetos con campos `fecha` y `precio`.
+     */
+    async function fetchDatosHistoricos() {
+      const resp = await fetch('data.json');
+      return await resp.json();
+    }
+
+    /*
+     * Calcula una media móvil simple de una serie numérica.
+     * Devuelve un array de igual longitud donde los primeros (periodo-1) elementos
+     * son null para que se alineen en el gráfico.
+     */
+    function calcularMediaMovil(valores, periodo) {
+      const resultado = [];
+      for (let i = 0; i < valores.length; i++) {
+        if (i < periodo - 1) {
+          resultado.push(null);
+        } else {
+          let suma = 0;
+          for (let j = i - periodo + 1; j <= i; j++) {
+            suma += valores[j];
+          }
+          resultado.push(suma / periodo);
+        }
+      }
+      return resultado;
+    }
+
+    /*
+     * Dibuja el gráfico de líneas utilizando Chart.js. Combina los datos históricos
+     * con el precio actual para mostrar una tendencia reciente y calcula la
+     * media móvil de 7 periodos.
+     */
+    async function dibujarGrafico() {
+      const historico = await fetchDatosHistoricos();
+      // Extraer fechas y precios del histórico
+      const labels = historico.map(reg => reg.fecha);
+      const precios = historico.map(reg => reg.precio);
+      // Añadir el precio actual al final de la serie si se obtuvo correctamente
+      const precioActual = await fetchPrecioActual();
+      if (precioActual) {
+        const hoy = new Date().toISOString().slice(0, 10);
+        labels.push(hoy);
+        precios.push(precioActual);
+      }
+      // Calcular media móvil de 7 periodos
+      const ma7 = calcularMediaMovil(precios, 7);
+      const ctx = document.getElementById('grafico').getContext('2d');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Precio (BOB)',
+              data: precios,
+              borderColor: 'rgba(33, 150, 243, 0.8)',
+              backgroundColor: 'rgba(33, 150, 243, 0.1)',
+              fill: true,
+              tension: 0.2,
+            },
+            {
+              label: 'Media móvil 7',
+              data: ma7,
+              borderColor: 'rgba(244, 67, 54, 0.8)',
+              backgroundColor: 'rgba(244, 67, 54, 0.1)',
+              fill: true,
+              tension: 0.2,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              position: 'bottom',
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+            },
+          },
+          interaction: {
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false,
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Fecha',
+              },
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Precio (BOB)',
+              },
+            },
+          },
+        },
+      });
+    }
+
+    // Ejecutar la función para dibujar el gráfico cuando se cargue la página
+    dibujarGrafico();
+  </script>
+</body>
+</html>
