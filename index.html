@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Dólar Paralelo Bolivia</title>
+  <!-- Carga Chart.js desde un CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* Estilo oscuro y moderno */
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(180deg, #0f2027, #203a43, #2c5364);
+      color: #e0e0e0;
+    }
+    header {
+      padding: 1.5rem;
+      text-align: center;
+      background-color: rgba(0, 0, 0, 0.4);
+      border-bottom: 1px solid #3a506b;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.8rem;
+    }
+    #precio {
+      margin: 1rem 0;
+      font-size: 1.2rem;
+    }
+    #estadisticas {
+      margin: 1rem auto;
+      max-width: 800px;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 1rem;
+      border-radius: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-around;
+    }
+    .stat {
+      flex: 1 1 200px;
+      margin: 0.5rem;
+    }
+    .stat h3 {
+      margin: 0.2rem 0;
+      font-size: 0.9rem;
+      color: #a3d5ff;
+    }
+    .stat p {
+      margin: 0;
+      font-size: 1.2rem;
+      font-weight: bold;
+    }
+    #grafico-container {
+      max-width: 900px;
+      margin: 0 auto 2rem auto;
+      padding: 1rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+    }
+    canvas {
+      width: 100% !important;
+      height: 400px !important;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Dashboard del dólar paralelo en Bolivia</h1>
+    <div id="precio">Cargando precio actual...</div>
+  </header>
+
+  <section id="estadisticas">
+    <!-- Estadísticas mensuales y conversión se insertarán aquí -->
+  </section>
+
+  <div id="grafico-container">
+    <canvas id="grafico"></canvas>
+  </div>
+
+  <script>
+    // Obtiene el precio actual del dólar paralelo de DolarApi
+    async function obtenerPrecioActual() {
+      try {
+        const resp = await fetch('https://bo.dolarapi.com/v1/dolares/binance');
+        const datos = await resp.json();
+        const precio = datos.venta;
+        const fechaActualizacion = new Date(datos.fechaActualizacion);
+        document.getElementById('precio').innerText =
+          `Precio actual: ${precio} BOB (actualizado: ${fechaActualizacion.toLocaleString()})`;
+        return precio;
+      } catch (error) {
+        console.error('Error obteniendo precio actual', error);
+        document.getElementById('precio').innerText = 'No se pudo obtener el precio actual';
+        return null;
+      }
+    }
+
+    // Obtiene los datos históricos almacenados en data.json
+    async function cargarHistorico() {
+      const resp = await fetch('data.json');
+      return await resp.json();
+    }
+
+    // Calcula media móvil simple con período dado
+    function mediaMovil(valores, periodo) {
+      const resultado = [];
+      for (let i = 0; i < valores.length; i++) {
+        if (i < periodo - 1) {
+          resultado.push(null);
+        } else {
+          let suma = 0;
+          for (let j = i - periodo + 1; j <= i; j++) {
+            suma += valores[j];
+          }
+          resultado.push(suma / periodo);
+        }
+      }
+      return resultado;
+    }
+
+    // Calcula estadísticas mensuales: mínimo, máximo, promedio para el mes más reciente en el histórico
+    function estadisticasMensuales(datos) {
+      // Agrupar por mes (YYYY-MM)
+      const grupos = {};
+      datos.forEach(({ fecha, precio }) => {
+        const mes = fecha.slice(0, 7);
+        grupos[mes] = grupos[mes] || [];
+        grupos[mes].push(precio);
+      });
+      // Obtener el mes más reciente
+      const meses = Object.keys(grupos).sort();
+      const ultimoMes = meses[meses.length - 1];
+      const valores = grupos[ultimoMes];
+      const maximo = Math.max(...valores);
+      const minimo = Math.min(...valores);
+      const promedio = valores.reduce((a, b) => a + b, 0) / valores.length;
+      return { mes: ultimoMes, maximo, minimo, promedio };
+    }
+
+    // Obtiene el tipo de cambio de Real brasileño (BRL) a USDT usando CoinGecko
+    async function obtenerBRLaUSDT() {
+      try {
+        const resp = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=brl');
+        const data = await resp.json();
+        const usdtInBRL = data.tether.brl; // 1 USDT en BRL
+        const brlToUsdt = 1 / usdtInBRL;
+        return brlToUsdt;
+      } catch (error) {
+        console.error('Error obteniendo BRL a USDT', error);
+        return null;
+      }
+    }
+
+    // Muestra estadísticas y el tipo de cambio BRL->USDT en la sección de estadísticas
+    async function mostrarEstadisticas(datos) {
+      const stats = estadisticasMensuales(datos);
+      const brlToUsdt = await obtenerBRLaUSDT();
+      const contenedor = document.getElementById('estadisticas');
+      contenedor.innerHTML = '';
+      // Datos mensuales
+      const statMes = document.createElement('div');
+      statMes.className = 'stat';
+      statMes.innerHTML = `<h3>Estadísticas ${stats.mes}</h3><p>Máximo: ${stats.maximo.toFixed(2)} BOB</p><p>Mínimo: ${stats.minimo.toFixed(2)} BOB</p><p>Promedio: ${stats.promedio.toFixed(2)} BOB</p>`;
+      contenedor.appendChild(statMes);
+      // Tipo de cambio BRL->USDT
+      const statBRL = document.createElement('div');
+      statBRL.className = 'stat';
+      const brlTexto = brlToUsdt ? `${brlToUsdt.toFixed(4)} USDT` : 'N/A';
+      statBRL.innerHTML = `<h3>Conversión 1 BRL a USDT</h3><p>${brlTexto}</p>`;
+      contenedor.appendChild(statBRL);
+    }
+
+    // Dibuja el gráfico con media móvil de 7 y de 14 días
+    async function dibujarGrafico() {
+      const historico = await cargarHistorico();
+      // Separar fechas y precios
+      const etiquetas = historico.map(reg => reg.fecha);
+      const precios = historico.map(reg => reg.precio);
+      // Añadir precio actual como último punto
+      const precioActual = await obtenerPrecioActual();
+      if (precioActual) {
+        const hoy = new Date().toISOString().slice(0, 10);
+        etiquetas.push(hoy);
+        precios.push(precioActual);
+      }
+      // Calcular medias móviles
+      const ma7 = mediaMovil(precios, 7);
+      const ma14 = mediaMovil(precios, 14);
+      const ctx = document.getElementById('grafico').getContext('2d');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: etiquetas,
+          datasets: [
+            {
+              label: 'Precio (BOB)',
+              data: precios,
+              borderColor: 'rgba(33,150,243,0.9)',
+              backgroundColor: 'rgba(33,150,243,0.2)',
+              fill: true,
+              tension: 0.2,
+            },
+            {
+              label: 'MA 7 días',
+              data: ma7,
+              borderColor: 'rgba(255,87,34,0.9)',
+              backgroundColor: 'rgba(255,87,34,0.2)',
+              fill: true,
+              tension: 0.2,
+            },
+            {
+              label: 'MA 14 días',
+              data: ma14,
+              borderColor: 'rgba(76,175,80,0.9)',
+              backgroundColor: 'rgba(76,175,80,0.2)',
+              fill: true,
+              tension: 0.2,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              labels: { color: '#e0e0e0' },
+              position: 'bottom'
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+            }
+          },
+          interaction: {
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false
+          },
+          scales: {
+            x: {
+              ticks: { color: '#e0e0e0' },
+              grid: { color: 'rgba(255,255,255,0.1)' },
+              title: { display: true, text: 'Fecha', color: '#e0e0e0' }
+            },
+            y: {
+              ticks: { color: '#e0e0e0' },
+              grid: { color: 'rgba(255,255,255,0.1)' },
+              title: { display: true, text: 'Precio (BOB)', color: '#e0e0e0' }
+            }
+          }
+        }
+      });
+      // Mostrar estadísticas
+      mostrarEstadisticas(historico);
+    }
+
+    // Ejecutar cuando la página se cargue completamente
+    dibujarGrafico();
+  </script>
+</body>
+</html>
