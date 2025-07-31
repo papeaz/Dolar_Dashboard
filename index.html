@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Dólar Paralelo Bolivia</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0; padding: 0;
+      background: linear-gradient(180deg,#0f2027,#203a43,#2c5364);
+      color: #e0e0e0;
+    }
+    header {
+      padding: 1.5rem; text-align: center;
+      background: rgba(0,0,0,0.4);
+      border-bottom: 1px solid #3a506b;
+    }
+    h1 { margin:0; font-size:1.8rem }
+    #precio { margin:1rem 0; font-size:1.2rem }
+    #estadisticas {
+      margin:1rem auto; max-width:800px;
+      background:rgba(255,255,255,0.1);
+      padding:1rem; border-radius:8px;
+      display:flex; flex-wrap:wrap; justify-content:space-around;
+    }
+    .stat { flex:1 1 200px; margin:0.5rem }
+    .stat h3 { margin:0.2rem 0; font-size:0.9rem; color:#a3d5ff }
+    .stat p { margin:0; font-size:1.2rem; font-weight:bold }
+    #grafico-container {
+      max-width:900px; margin:0 auto 2rem auto;
+      padding:1rem; background:rgba(255,255,255,0.05);
+      border-radius:8px;
+    }
+    canvas { width:100% !important; height:400px !important }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Dashboard del dólar paralelo en Bolivia</h1>
+    <div id="precio">Cargando precio actual...</div>
+  </header>
+  <section id="estadisticas"></section>
+  <div id="grafico-container"><canvas id="grafico"></canvas></div>
+
+  <script>
+    async function obtenerPrecioActual() {
+      try {
+        const r = await fetch('https://bo.dolarapi.com/v1/dolares/binance');
+        const j = await r.json();
+        const p = j.venta, f = new Date(j.fechaActualizacion);
+        document.getElementById('precio').innerText =
+          `Precio actual: ${p} BOB (actualizado: ${f.toLocaleString()})`;
+        return p;
+      } catch {
+        document.getElementById('precio').innerText = 'Error al obtener precio';
+        return null;
+      }
+    }
+
+    async function cargarHistorico() {
+      const r = await fetch('data.json');
+      return await r.json();
+    }
+
+    function mediaMovil(vals, n) {
+      return vals.map((v,i,arr) =>
+        i < n-1 ? null
+        : arr.slice(i-n+1,i+1).reduce((a,b)=>a+b,0)/n
+      );
+    }
+
+    function estadisticasMensuales(datos) {
+      const grp = {};
+      datos.forEach(d => {
+        const m = d.fecha.slice(0,7);
+        (grp[m]||(grp[m]=[])).push(d.precio);
+      });
+      const meses = Object.keys(grp).sort();
+      const ult = grp[meses.pop()];
+      const max = Math.max(...ult), min = Math.min(...ult);
+      const avg = ult.reduce((a,b)=>a+b,0)/ult.length;
+      return { mes: meses[meses.length-1]||'', max, min, avg };
+    }
+
+    async function obtenerUSDaBRL() {
+      try {
+        const r = await fetch('https://api.exchangerate.host/convert?from=USD&to=BRL');
+        return (await r.json()).result;
+      } catch { return null }
+    }
+    async function obtenerEURaUSD() {
+      try {
+        const r = await fetch('https://api.exchangerate.host/convert?from=EUR&to=USD');
+        return (await r.json()).result;
+      } catch { return null }
+    }
+    async function obtenerBTCenUSD() {
+      try {
+        const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd');
+        return (await r.json()).bitcoin.usd;
+      } catch { return null }
+    }
+
+    async function mostrarEstadisticas(datos) {
+      const s = estadisticasMensuales(datos),
+            u2b = await obtenerUSDaBRL(),
+            e2u = await obtenerEURaUSD(),
+            b2u = await obtenerBTCenUSD();
+      const cont = document.getElementById('estadisticas');
+      cont.innerHTML = `
+        <div class="stat">
+          <h3>Estadísticas ${s.mes}</h3>
+          <p>Máximo: ${s.max.toFixed(2)} BOB</p>
+          <p>Mínimo: ${s.min.toFixed(2)} BOB</p>
+          <p>Promedio: ${s.avg.toFixed(2)} BOB</p>
+        </div>
+        <div class="stat">
+          <h3>1 USD en BRL</h3><p>${u2b?u2b.toFixed(4):'N/A'} BRL</p>
+        </div>
+        <div class="stat">
+          <h3>1 EUR en USD</h3><p>${e2u?e2u.toFixed(4):'N/A'} USD</p>
+        </div>
+        <div class="stat">
+          <h3>1 BTC en USD</h3><p>${b2u?b2u.toLocaleString('es-ES'):'N/A'} USD</p>
+        </div>`;
+    }
+
+    let chart;
+    async function dibujarGrafico() {
+      const hist = await cargarHistorico(),
+            labels = hist.map(d=>d.fecha),
+            data = hist.map(d=>d.precio),
+            curr = await obtenerPrecioActual();
+      if(curr!=null){
+        const hoy=new Date().toISOString().slice(0,10);
+        labels.push(hoy); data.push(curr);
+      }
+      const ma7 = mediaMovil(data,7),
+            ma14 = mediaMovil(data,14),
+            ctx = document.getElementById('grafico').getContext('2d');
+      chart = new Chart(ctx,{
+        type:'line',
+        data:{ labels, datasets:[
+          { label:'Precio BOB', data, borderColor:'#2196F3', borderWidth:2, fill:false, tension:0.2 },
+          { label:'MA 7 días', data:ma7, borderColor:'#FF5722', borderWidth:1, fill:false, tension:0.2 },
+          { label:'MA 14 días', data:ma14, borderColor:'#4CAF50', borderWidth:1, fill:false, tension:0.2 }
+        ]},
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ labels:{color:'#e0e0e0'}, position:'bottom' } },
+          scales:{
+            x:{ ticks:{color:'#e0e0e0'}, grid:{color:'rgba(255,255,255,0.1)'} },
+            y:{ ticks:{color:'#e0e0e0'}, grid:{color:'rgba(255,255,255,0.1)'} }
+          }
+        }
+      });
+      mostrarEstadisticas(hist);
+      setInterval(async ()=>{
+        const p=await obtenerPrecioActual();
+        if(p==null) return;
+        const f=new Date().toISOString().slice(0,10);
+        chart.data.labels.push(f);
+        chart.data.datasets[0].data.push(p);
+        chart.data.datasets[1].data = mediaMovil(chart.data.datasets[0].data,7);
+        chart.data.datasets[2].data = mediaMovil(chart.data.datasets[0].data,14);
+        chart.update();
+        const updated = chart.data.labels.map((f,i)=>({fecha:f,precio:chart.data.datasets[0].data[i]}));
+        mostrarEstadisticas(updated);
+      },8*3600*1000);
+    }
+    dibujarGrafico();
+  </script>
+</body>
+</html>
