@@ -21,47 +21,42 @@ jobs:
           python-version: '3.x'
 
       - name: Obtener precio paralelo y actualizar data.json
-        *** Begin Patch
-*** Update File: .github/workflows/update_data.yml
-@@      - name: Obtener precio paralelo y actualizar data.json
--        run: |
--          python - <<PY
--          import json, datetime
--          import requests
-+        run: |
-+          python - <<PY
-+import json, datetime, requests, sys
-+
-+url = "https://bo.dolarapi.com/v1/dolares/binance"
-+resp = requests.get(url)
-+if resp.status_code != 200:
-+    print("Error al obtener API", file=sys.stderr)
-+    sys.exit(1)
-+data = resp.json()
-+precio = data.get("venta")
-+fecha  = data.get("fechaActualizacion","").split("T")[0]
-+if not precio or not fecha:
-+    print("Respuesta inválida", file=sys.stderr)
-+    sys.exit(1)
-+
-+historico = []
-+try:
-+    with open("data.json", "r", encoding="utf-8") as f:
-+        historico = json.load(f)
-+except FileNotFoundError:
-+    pass
-+
-+if not any(x["fecha"] == fecha for x in historico):
-+    historico.append({"fecha": fecha, "precio": precio})
-+    historico.sort(key=lambda x: x["fecha"])
-+    with open("data.json", "w", encoding="utf-8") as f:
-+        json.dump(historico, f, ensure_ascii=False, indent=2)
-+    print(f"Agregado: {fecha} → {precio}")
-+else:
-+    print(f"Ya existe registro para {fecha}")
-+PY
-*** End Patch
+        run: |
+          python - <<PY
+import json, datetime, requests, sys
 
+# Llamada a la API del dólar paralelo
+url = "https://bo.dolarapi.com/v1/dolares/binance"
+resp = requests.get(url)
+if resp.status_code != 200:
+    print("Error al obtener API", file=sys.stderr)
+    sys.exit(1)
+
+data = resp.json()
+precio = data.get("venta")
+fecha  = data.get("fechaActualizacion", "").split("T")[0]
+if not precio or not fecha:
+    print("Respuesta inválida", file=sys.stderr)
+    sys.exit(1)
+
+# Carga histórico existente o inicializa lista
+historico = []
+try:
+    with open("data.json", "r", encoding="utf-8") as f:
+        historico = json.load(f)
+except FileNotFoundError:
+    pass
+
+# Añade nuevo registro si no existe
+if not any(x["fecha"] == fecha for x in historico):
+    historico.append({"fecha": fecha, "precio": precio})
+    historico.sort(key=lambda x: x["fecha"])
+    with open("data.json", "w", encoding="utf-8") as f:
+        json.dump(historico, f, ensure_ascii=False, indent=2)
+    print(f"Agregado: {fecha} → {precio}")
+else:
+    print(f"Ya existe registro para {fecha}")
+PY
 
       - name: Commit & Push
         run: |
